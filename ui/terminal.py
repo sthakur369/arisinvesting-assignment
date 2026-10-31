@@ -1,6 +1,7 @@
 import sys
 from database.db import validate_user_id
-from llm.openai_llm import generate_response
+from llm.openai_llm import analyze_question
+import json
 
 # Minimalist color codes
 class Style:
@@ -105,24 +106,31 @@ def run_chat_session(user):
         print(f"{Style.CYAN}⚙ Thinking...{Style.RESET}")
 
         try:
-            answer = generate_response(question, conversation)
+            result = analyze_question(question, conversation, user)
 
-            print(f"\n{Style.GREEN}{answer}{Style.RESET}\n")
+            ###########################DEBUG########### Display the complete structured LLM response.
+            print(f"\n{Style.GREEN}{json.dumps(result, indent=2, ensure_ascii=False)}{Style.RESET}\n")
 
-            # Save both messages for the next API request.
-            conversation_history.append({
-                "role": "user",
-                "content": question
-            })
+            if result["action"] == "ANSWER_DIRECTLY":
+                print(f"\n{Style.GREEN}{result['answer']}{Style.RESET}\n")
 
-            conversation_history.append({
-                "role": "assistant",
-                "content": answer
-            })
+            elif result["action"] == "QUERY_DATABASE":
+                print(f"\n{Style.CYAN}SQL query generated successfully.{Style.RESET}")
+                print(f"[DEBUG] SQL: {result['sql']}")
+                print(f"[DEBUG] Parameters: {result['parameters']}\n")
 
-            # print(f"[DEBUG] conversation_history: {conversation_history}")
-            # print(f"[DEBUG] conversation with summary:::: {conversation}")
+                print("Database querying is not implemented yet.\n")
 
+            # # Save both messages for the next API request.
+            # conversation_history.append({
+            #     "role": "user",
+            #     "content": question
+            # })
+
+            # conversation_history.append({
+            #     "role": "assistant",
+            #     "content": answer
+            # })
 
         except Exception as error:
             print(f"\n{Style.RED}✗ OpenAI API Error: {error}{Style.RESET}\n")
