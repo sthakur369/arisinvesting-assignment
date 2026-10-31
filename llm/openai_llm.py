@@ -28,7 +28,7 @@ QUESTION_ANALYSIS_RESPONSE_FORMAT = {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["ANSWER_DIRECTLY", "QUERY_DATABASE"]
+                    "enum": ["ANSWER_DIRECTLY", "QUERY_DATABASE", "REFUSE"]
                 },
                 "answer": {"type": ["string", "null"]},
                 "resolved_question": {"type": ["string", "null"]},
@@ -199,6 +199,17 @@ def analyze_question(question, conversation, user):
                 f"[DEBUG] SQL plan generated | "
                 f"Tables: {', '.join(result['tables'])}"
             )
+
+    
+    elif result["action"] == "REFUSE":
+        if not result["answer"] or result["sql"] is not None:
+            raise ValueError("Invalid refusal response from the model.")
+
+        # Save the completed refusal exchange in conversation history.
+        conversation.setdefault("history", []).extend([
+            {"role": "user", "content": question.strip()},
+            {"role": "assistant", "content": result["answer"]}
+        ])
 
     else:
         raise ValueError(
