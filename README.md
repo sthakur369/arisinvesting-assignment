@@ -8,7 +8,7 @@ Run these commands from the project folder in PowerShell:
 
 ```powershell
 python -m venv myenv
-.\myenv\Scripts\Activate.ps1
+.\myenv\scripts\activate
 pip install -r requirements.txt
 ```
 
