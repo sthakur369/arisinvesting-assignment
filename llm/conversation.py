@@ -1,6 +1,7 @@
 
 import json
 from pathlib import Path
+from llm.usage import extract_chat_usage
 
 # Load system prompt from the separate Markdown file.
 PROMPT_PATH = Path(__file__).parent / "summary_prompt.md"
@@ -14,7 +15,7 @@ def update_conversation_summary(client, model, conversation, conversation_thresh
 
     # 10 exchanges = 20 messages (10 user + 10 assistant).
     if len(history) < conversation_threshold:
-        return
+        return None
 
     # Include the previous summary so older context is not lost.
     conversation_data = {
@@ -22,9 +23,9 @@ def update_conversation_summary(client, model, conversation, conversation_thresh
         "recent_conversation": history
     }
 
-    print("\n[DEBUG] Conversation summarization started.")
-    print(f"[DEBUG] Previous summary exists: {bool(conversation['summary'])}")
-    print(f"[DEBUG] Messages being summarized: {len(history)}")
+    # print("\n[DEBUG] Conversation summarization started.")
+    # print(f"[DEBUG] Previous summary exists: {bool(conversation['summary'])}")
+    # print(f"[DEBUG] Messages being summarized: {len(history)}")
 
     response = client.chat.completions.create(
         model=model,
@@ -49,5 +50,8 @@ def update_conversation_summary(client, model, conversation, conversation_thresh
     # Clear old messages only after successful summarization.
     history.clear()
 
-    print(f"[DEBUG] New summary: {conversation['summary']}")
-    print("[DEBUG] Recent conversation history cleared.")
+    return extract_chat_usage(response, model)
+
+
+    # print(f"[DEBUG] New summary: {conversation['summary']}")
+    # print("[DEBUG] Recent conversation history cleared.")

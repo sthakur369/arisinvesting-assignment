@@ -6,16 +6,20 @@ from openai import OpenAI
 
 from config.config import OPENAI_API_KEY, OPENAI_DEFAULT_MODEL
 from llm.conversation import update_conversation_summary
+from llm.usage import extract_chat_usage, calculate_usage
 
-DEBUG = True
+DEBUG = False
 
 # Load prompt instructions from files beside this module.
 PROMPT_DIR = Path(__file__).resolve().parent
 SYSTEM_PROMPT = (PROMPT_DIR / "system_prompt.md").read_text(encoding="utf-8")
 QUESTION_ANALYSIS_PROMPT = (PROMPT_DIR / "question_analysis_prompt.md").read_text(encoding="utf-8")
+DATABASE_ANSWER_PROMPT = ( PROMPT_DIR / "database_answer_prompt.md" ).read_text(encoding="utf-8")
 
 client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 CONVERSATION_THRESHOLD = 20
+
+
 
 # Constrain the model to the two actions supported in this implementation step.
 QUESTION_ANALYSIS_RESPONSE_FORMAT = {
@@ -28,7 +32,7 @@ QUESTION_ANALYSIS_RESPONSE_FORMAT = {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["ANSWER_DIRECTLY", "QUERY_DATABASE", "REFUSE"]
+                    "enum": ["ANSWER_DIRECTLY", "QUERY_DATABASE", "REFUSE", "CANNOT_ANSWER", "NEEDS_CLARIFICATION"]
                 },
                 "answer": {"type": ["string", "null"]},
                 "resolved_question": {"type": ["string", "null"]},
@@ -69,6 +73,30 @@ QUESTION_ANALYSIS_RESPONSE_FORMAT = {
 }
 
 
+
+DATABASE_ANSWER_RESPONSE_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "database_answer",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "answer": {"type": "string"},
+                "result": {
+                    "type": ["number", "boolean", "array", "null"],
+                    "items": {"type": "integer"}
+                },
+                "evidence": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                }
+            },
+            "required": ["answer", "result", "evidence"],
+            "additionalProperties": False
+        }
+    }
+}
 def analyze_question(question, conversation, user):
     """Return a structured direct answer or a parameterized SQL plan."""
 
@@ -91,13 +119,14 @@ def analyze_question(question, conversation, user):
         raise ValueError("Sponsor ID is missing.")
 
     # Summarize older messages when the conversation reaches the threshold.
-    update_conversation_summary(
+
+    summary_usage = update_conversation_summary(
         client,
         OPENAI_DEFAULT_MODEL,
         conversation,
         CONVERSATION_THRESHOLD
     )
-
+    
     # Display a brief overview of the context being sent to GPT.
     if DEBUG:
         print(
@@ -186,6 +215,7 @@ def analyze_question(question, conversation, user):
                 f"Recent messages: {len(conversation['history'])}"
             )
 
+    
     elif result["action"] == "QUERY_DATABASE":
 
         if not result["sql"] or not result["resolved_question"]:
@@ -211,11 +241,96 @@ def analyze_question(question, conversation, user):
             {"role": "assistant", "content": result["answer"]}
         ])
 
+
+    elif result["action"] in ("CANNOT_ANSWER", "NEEDS_CLARIFICATION"):
+
+        if not result["answer"] or result["sql"] is not None:
+            raise ValueError("Invalid response from the model.")
+
+        conversation.setdefault("history", []).extend([
+            {"role": "user", "content": question.strip()},
+            {"role": "assistant", "content": result["answer"]}
+        ])
+
+        
     else:
         raise ValueError(
             f"Unsupported action returned by the model: {result['action']}"
         )
 
+    result["_usage"] = [
+        item for item in (
+            summary_usage,
+            extract_chat_usage(response, OPENAI_DEFAULT_MODEL)
+        )
+        if item is not None
+    ]
+        
+
     return result
 
 
+
+def generate_database_answer(question, analysis_result, database_result, conversation, user):
+    """Generate an answer using database results and conversation history."""
+
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "developer", "content": DATABASE_ANSWER_PROMPT},
+        {
+            "role": "developer",
+            "content": f"Authenticated user: {json.dumps(user)}"
+        }
+    ]
+
+    # Add previous conversation summary.
+    if conversation["summary"]:
+        messages.append({
+            "role": "developer",
+            "content": "Previous conversation summary:\n" + conversation["summary"] 
+        })
+
+    # Add recent conversation history.
+    messages.extend(conversation["history"])
+
+    # Add the database results and interpretation.
+    messages.append({
+    "role": "developer",
+    "content": (
+        "Resolved question: " + analysis_result["resolved_question"] +
+        "\nAssumptions: " + json.dumps(analysis_result["assumptions"]) +
+        "\nExecuted SQL: " + analysis_result["sql"] +
+        "\nSQL parameters: " + json.dumps(analysis_result["parameters"]) +
+        "\nDatabase results:\n" + json.dumps(database_result, ensure_ascii=False)
+    )
+})
+    # Add the current question.
+    messages.append({"role": "user", "content": question})
+
+    response = client.chat.completions.create(
+    model=OPENAI_DEFAULT_MODEL,
+    messages=messages,
+    response_format=DATABASE_ANSWER_RESPONSE_FORMAT
+)
+
+    if not response.choices[0].message.content:
+        raise ValueError("The model returned an empty answer.")
+
+    output = json.loads(response.choices[0].message.content)
+
+    output["_usage"] = [
+        extract_chat_usage(response, OPENAI_DEFAULT_MODEL)
+    ]
+
+
+    # Save the completed exchange in the existing conversation history.
+    conversation["history"].extend([
+        {"role": "user", "content": question},
+        {"role": "assistant", "content": output["answer"]}
+    ])
+
+    return output
+
+
+def calculate_request_usage(records):
+    return calculate_usage(client, OPENAI_DEFAULT_MODEL, records)

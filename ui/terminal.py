@@ -1,7 +1,18 @@
 import sys
 from database.db import validate_user_id
-from llm.openai_llm import analyze_question
+from assistant import ask
 import json
+import sqlite3
+
+from rich.console import Console
+from rich.table import Table
+from rich.markup import escape
+from rich.console import Console
+from rich.markdown import Markdown
+
+from database.db import execute_sql_query
+
+console = Console()
 
 # Minimalist color codes
 class Style:
@@ -29,6 +40,41 @@ def prompt(text):
         print(f"\n{Style.CYAN}Goodbye! Thank you for using Ask-ARIS.{Style.RESET}\n")
         sys.exit(0) # Closes the Python program immediately
     return user_input
+
+
+def display_database_result(database_result):
+    """Display database results as a formatted terminal table."""
+
+    columns = database_result["columns"]
+    rows = database_result["rows"]
+
+    if not rows:
+        print("\nNo matching records found.")
+        return
+
+    table = Table(show_header=True, header_style="bold cyan")
+
+    # Create table columns.
+    for column in columns:
+        table.add_column(escape(str(column)), overflow="fold")
+
+    # Add database records.
+    for row in rows:
+        table.add_row(*[
+            escape(str(value)) if value is not None else "NULL"
+            for value in row
+        ])
+
+    console.print(table)
+    console.print(
+        f"[dim]{database_result['row_count']} records returned.[/dim]"
+    )
+
+
+def display_answer(answer):
+    Console().print()
+    Console().print(Markdown(answer))
+    Console().print()
 
 
 def select_user(connection):
@@ -79,7 +125,7 @@ def select_user(connection):
             print(f"{Style.RED}✗ Invalid {label} ID: {user_id}.{Style.RESET}")
 
 
-def run_chat_session(user):
+def run_chat_session(user, connection):
     # Stores the compressed summary and recent conversation.
     conversation = {
         "summary": "",
@@ -98,6 +144,7 @@ def run_chat_session(user):
     
 
     while True:
+        print()
         question = prompt(f"{Style.GREEN}Ask-ARIS > {Style.RESET}")
 
         if not question:
@@ -106,31 +153,8 @@ def run_chat_session(user):
         print(f"{Style.CYAN}⚙ Thinking...{Style.RESET}")
 
         try:
-            result = analyze_question(question, conversation, user)
-
-            ###########################DEBUG########### Display the complete structured LLM response.
-            print(f"\n{Style.GREEN}{json.dumps(result, indent=2, ensure_ascii=False)}{Style.RESET}\n")
-
-            if result["action"] == "ANSWER_DIRECTLY":
-                print(f"\n{Style.GREEN}{result['answer']}{Style.RESET}\n")
-
-            elif result["action"] == "QUERY_DATABASE":
-                print(f"\n{Style.CYAN}SQL query generated successfully.{Style.RESET}")
-                print(f"[DEBUG] SQL: {result['sql']}")
-                print(f"[DEBUG] Parameters: {result['parameters']}\n")
-
-                print("Database querying is not implemented yet.\n")
-
-            # # Save both messages for the next API request.
-            # conversation_history.append({
-            #     "role": "user",
-            #     "content": question
-            # })
-
-            # conversation_history.append({
-            #     "role": "assistant",
-            #     "content": answer
-            # })
+            response = ask(question, user, connection, conversation)
+            print(json.dumps(response, indent=2, ensure_ascii=False))
 
         except Exception as error:
-            print(f"\n{Style.RED}✗ OpenAI API Error: {error}{Style.RESET}\n")
+            print(f"\n{Style.RED}✗ Error: {error}{Style.RESET}\n")

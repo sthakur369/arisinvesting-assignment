@@ -3,7 +3,6 @@ import sqlite3
 from database.db import open_database
 from ui.terminal import select_user, run_chat_session
 
-
 def main():
 
     # Keep the database connection available for the entire session.
@@ -21,7 +20,7 @@ def main():
         user = select_user(connection)
 
         # Step 3: Start the chat session after successful validation.
-        run_chat_session(user)
+        run_chat_session(user, connection)
 
     except KeyboardInterrupt:
         print("\n\nAsk-ARIS interrupted.")

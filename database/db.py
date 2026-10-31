@@ -37,3 +37,21 @@ def validate_user_id(connection, role, user_id):
 
     return result is not None
 
+def execute_sql_query(connection, sql, parameters):
+    """Execute a SQL query and return structured results."""
+
+    cursor = connection.execute(sql, parameters or [])
+
+    # Extract column names from the query result.
+    columns = [description[0] for description in cursor.description or []]
+
+    # Keep rows as lists to preserve column order and duplicate column names.
+    rows = [list(row) for row in cursor.fetchall()]
+
+    cursor.close()
+
+    return {
+        "columns": columns,
+        "rows": rows,
+        "row_count": len(rows)
+    }
