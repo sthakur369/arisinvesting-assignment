@@ -71,3 +71,9 @@ These two failures remain unresolved in the recorded evaluation:
 2. **Question 20 – unclear account request:** The user asks, “Show me my account details.” The agent lists all 17 accounts instead of asking whether the user wants all accounts or a particular account. It should return `NEEDS_CLARIFICATION`.
 
 `results.json` contains the latency and API cost for every individual question, along with its expected and actual status and result. These figures are from the recorded run; they may change when the model, prompts or evaluation set changes.
+
+
+## Project documentation
+
+- [DECISIONS.md](DECISIONS.md) – key decisions made during development, why they were made, how they were checked, and questions to confirm with the business.
+- [PRODUCTION.md](PRODUCTION.md) – what needs to be in place before using the assistant with real advisors, and what should not be shipped yet.
